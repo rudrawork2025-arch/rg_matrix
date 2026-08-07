@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:rg_matrix/audio_recorder.dart';
+import 'package:rg_matrix/login_screen.dart' hide LoginPage;
 import 'login_screen.dart';
 
 void main() {
@@ -19,7 +20,7 @@ class MyApp extends StatelessWidget {
         ),
         appBarTheme: const AppBarTheme(centerTitle: true),
       ),
-      home: const AudioRecorderScreen(),
+      home: const LoginPage(),
     );
   }
 }

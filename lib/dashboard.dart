@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'audio_recorder.dart';
 
 // -----------------------------------------------------------------------
 // Simple Dashboard Page
@@ -43,7 +44,18 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   void _onNavTap(int index) {
-    setState(() => _selectedIndex = index);
+    if (index == 1) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const AudioRecorderScreen(),
+        )
+      );
+      return;
+    }
+    setState(() {
+      _selectedIndex = index;
+    });
   }
 
   @override

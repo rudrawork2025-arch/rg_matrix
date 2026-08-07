@@ -23,9 +23,23 @@ class _AudioRecorderScreenState extends State<AudioRecorderScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      floatingActionButton: _recordingButton(),
-      body: _buildUI(),
+      appBar: AppBar(
+        title: const Text('Audio Recorder'),
+        backgroundColor: Colors.indigo,
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            Navigator.pop(context);
+          },
+      ),
+      ),
+      body: const Center(
+        child: Text('Audio Recorder'),
+      )
     );
+
+    // floatingActionButton: _recordingButton()
   }
 
   Widget _buildUI() {
