@@ -13,7 +13,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'RG Matrix',
+      title: 'Sentinel',
       theme: ThemeData(
         colorScheme: .fromSeed(
           seedColor: const Color.fromARGB(255, 6, 170, 91),

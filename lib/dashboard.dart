@@ -1,240 +1,219 @@
 import 'package:flutter/material.dart';
+
 import 'audio_recorder.dart';
+import 'new_patient.dart';
+import 'patient_profile_screen.dart';
+import 'patient_screen.dart';
 
-// -----------------------------------------------------------------------
-// Simple Dashboard Page
-// -----------------------------------------------------------------------
-// Navigate here after a successful login, e.g.:
-//
-//   Navigator.pushReplacement(
-//     context,
-//     MaterialPageRoute(builder: (context) => const DashboardPage()),
-//   );
-//
-// This file is self-contained and does not depend on the login page.
-// -----------------------------------------------------------------------
+class DoctorHomeScreen extends StatelessWidget {
+  const DoctorHomeScreen({super.key});
 
-class DashboardPage extends StatefulWidget {
-  const DashboardPage({super.key});
-
-  @override
-  State<DashboardPage> createState() => _DashboardPageState();
-}
-
-class _DashboardPageState extends State<DashboardPage> {
-  int _selectedIndex = 0;
-
-  final List<_StatItem> _stats = const [
-    _StatItem(title: 'Total Patients', value: '54', icon: Icons.shopping_bag_outlined, color: Colors.indigo),
-    _StatItem(title: 'Revenue', value: '\$8,540', icon: Icons.attach_money, color: Colors.green),
-    _StatItem(title: 'Patients Left', value: '4', icon: Icons.people_outline, color: Colors.orange),
-    _StatItem(title: 'Upcoming Appointments', value: '18', icon: Icons.hourglass_empty, color: Colors.red),
+  // ------------------------------------------------------------
+  // SAMPLE CONSULTATION DATA
+  // ------------------------------------------------------------
+  final List<Map<String, String>> consultations = const [
+    {
+      "name": "Rahul Sharma",
+      "id": "P-001",
+      "time": "10:00 AM",
+      "age": "28",
+      "gender": "Male",
+      "phone": "9876543210",
+      "notes": "Patient experiencing work related stress and sleep disturbances.",
+    },
+    {
+      "name": "Priya Mehta",
+      "id": "P-002",
+      "time": "11:30 AM",
+      "age": "31",
+      "gender": "Female",
+      "phone": "9876543211",
+      "notes": "Patient reports anxiety related to work and personal responsibilities.",
+    },
+    {
+      "name": "Amit Patel",
+      "id": "P-003",
+      "time": "02:00 PM",
+      "age": "25",
+      "gender": "Male",
+      "phone": "9876543212",
+      "notes": "Patient experiencing difficulty concentrating and maintaining routines.",
+    },
+    {
+      "name": "Sneha Joshi",
+      "id": "P-004",
+      "time": "04:00 PM",
+      "age": "29",
+      "gender": "Female",
+      "phone": "9876543213",
+      "notes": "Patient reports sleep difficulties and occasional anxiety.",
+    },
   ];
 
-  final List<_ActivityItem> _activity = const [
-    _ActivityItem(title: 'Ram', subtitle: '2 minutes ago', icon: Icons.shopping_cart_outlined),
-    _ActivityItem(title: 'Shyam', subtitle: '15 minutes ago', icon: Icons.person_add_alt_outlined),
-    _ActivityItem(title: 'Sita', subtitle: '1 hour ago', icon: Icons.payment_outlined),
-    _ActivityItem(title: 'Gita', subtitle: '3 hours ago', icon: Icons.cloud_done_outlined),
-  ];
-
-  void _handleLogout(BuildContext context) {
-    // TODO: Clear auth session/token here, then navigate back to LoginPage.
-    Navigator.of(context).pop();
-  }
-
-  void _onNavTap(int index) {
-    if (index == 1) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const AudioRecorderScreen(),
-        )
-      );
-      return;
-    }
-    setState(() {
-      _selectedIndex = index;
-    });
-  }
+  static const Color primaryColor = Color(0xFF4B3FE4);
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
-      appBar: AppBar(
-        title: const Text('Rohan Dashboard'),
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => _handleLogout(context),
-          ),
-        ],
-      ),
-      drawer: _buildDrawer(context),
-      body: RefreshIndicator(
-        onRefresh: () async {
-          // TODO: Fetch fresh dashboard data here
-          await Future.delayed(const Duration(seconds: 1));
-        },
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+      backgroundColor: const Color(0xFFF7F7FB),
+      // ------------------------------------------------------------
+      // BODY
+      // ------------------------------------------------------------
+      body: SafeArea(
+        child: Column(
           children: [
-            const Text(
-              'Welcome back 👋',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              "Here's what's happening today.",
-              style: TextStyle(color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 20),
-
-            // Stats grid
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _stats.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 1.5,
-              ),
-              itemBuilder: (context, index) => _StatCard(item: _stats[index]),
-            ),
-
-            const SizedBox(height: 24),
-
-            const Text(
-              'Patients List',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: List.generate(_activity.length, (index) {
-                  final item = _activity[index];
-                  return Column(
-                    children: [
-                      ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.indigo.withOpacity(0.1),
-                          child: Icon(item.icon, color: Colors.indigo, size: 20),
-                        ),
-                        title: Text(item.title),
-                        subtitle: Text(item.subtitle),
-                      ),
-                      if (index != _activity.length - 1)
-                        const Divider(height: 1, indent: 16, endIndent: 16),
-                    ],
-                  );
-                }),
+            _buildHeader(),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 16),
+                    _buildStatsGrid(),
+                    const SizedBox(height: 24),
+                    _buildTodaysConsultationsHeader(context),
+                    const SizedBox(height: 12),
+                    _buildConsultationsList(context),
+                    const SizedBox(height: 24),
+                    _buildStartConsultationButton(context),
+                    const SizedBox(height: 16),
+                  ],
+                ),
               ),
             ),
-            const SizedBox(height: 24),
           ],
         ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: _onNavTap,
-        selectedItemColor: Colors.indigo,
-        unselectedItemColor: Colors.grey,
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.dashboard_outlined), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.bar_chart_outlined), label: 'Recorder'),
-          BottomNavigationBarItem(icon: Icon(Icons.settings_outlined), label: 'Settings'),
-          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Profile'),
-        ],
-      ),
+      // ------------------------------------------------------------
+      // BOTTOM NAVIGATION
+      // ------------------------------------------------------------
+      bottomNavigationBar: _buildBottomNavBar(context),
     );
   }
 
-  Drawer _buildDrawer(BuildContext context) {
-    return Drawer(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          const UserAccountsDrawerHeader(
-            decoration: BoxDecoration(color: Colors.indigo),
-            accountName: Text('Jane Doe'),
-            accountEmail: Text('jane.doe@example.com'),
-            currentAccountPicture: CircleAvatar(
-              backgroundColor: Colors.white,
-              child: Icon(Icons.person, color: Colors.indigo, size: 32),
+  // ============================================================
+  // HEADER
+  // ============================================================
+  Widget _buildHeader() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double width = constraints.maxWidth;
+        final double titleSize = width < 360 ? 18 : 20;
+        final double smallTextSize = width < 360 ? 12 : 13;
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+          decoration: const BoxDecoration(
+            color: primaryColor,
+            borderRadius: BorderRadius.only(
+              bottomLeft: Radius.circular(24),
+              bottomRight: Radius.circular(24),
             ),
           ),
-          ListTile(
-            leading: const Icon(Icons.dashboard_outlined),
-            title: const Text('Dashboard'),
-            onTap: () => Navigator.pop(context),
+          child: Row(
+            children: [
+              const Icon(Icons.menu, color: Colors.white),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Good Morning,",
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: smallTextSize,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      "Dr. Rohan 👋",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: titleSize,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.notifications_none, color: Colors.white),
+            ],
           ),
-          ListTile(
-            leading: const Icon(Icons.settings_outlined),
-            title: const Text('Settings'),
-            onTap: () => Navigator.pop(context),
-          ),
-          ListTile(
-            leading: const Icon(Icons.help_outline),
-            title: const Text('Help & Support'),
-            onTap: () => Navigator.pop(context),
-          ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.logout, color: Colors.red),
-            title: const Text('Logout', style: TextStyle(color: Colors.red)),
-            onTap: () => _handleLogout(context),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
-}
 
-class _StatItem {
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
+  // ============================================================
+  // STATS GRID
+  // ============================================================
+  Widget _buildStatsGrid() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double screenWidth = constraints.maxWidth;
+        const double spacing = 12;
+        final double cardWidth = (screenWidth - spacing) / 2;
+        double cardHeight = cardWidth * 0.72;
 
-  const _StatItem({
-    required this.title,
-    required this.value,
-    required this.icon,
-    required this.color,
-  });
-}
+        cardHeight = cardHeight.clamp(115.0, 145.0);
 
-class _StatCard extends StatelessWidget {
-  final _StatItem item;
+        return Transform.translate(
+          offset: const Offset(0, -20),
+          child: GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: spacing,
+            mainAxisSpacing: spacing,
+            childAspectRatio: cardWidth / cardHeight,
+            children: [
+              _statCard(
+                Icons.person,
+                "Total Patients",
+                "54",
+                Colors.indigo,
+              ),
+              _statCard(
+                Icons.calendar_today,
+                "Today's Consultations",
+                "4",
+                Colors.deepPurple,
+              ),
+              _statCard(
+                Icons.description_outlined,
+                "Notes Generated",
+                "18",
+                Colors.indigo,
+              ),
+              _statCard(
+                Icons.access_time,
+                "Pending Notes",
+                "3",
+                Colors.orange,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 
-  const _StatCard({required this.item});
-
-  @override
-  Widget build(BuildContext context) {
+  // ============================================================
+  // STAT CARD
+  // ============================================================
+  Widget _statCard(
+      IconData icon,
+      String label,
+      String value,
+      Color iconColor,
+      ) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -242,40 +221,194 @@ class _StatCard extends StatelessWidget {
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
             blurRadius: 8,
-            offset: const Offset(0, 2),
+            offset: const Offset(0, 3),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           CircleAvatar(
-            backgroundColor: item.color.withOpacity(0.1),
-            child: Icon(item.icon, color: item.color, size: 20),
+            radius: 16,
+            backgroundColor: iconColor.withOpacity(0.1),
+            child: Icon(icon, size: 16, color: iconColor),
           ),
-          const Spacer(),
-          Text(
-            item.value,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          const SizedBox(height: 6),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            ),
           ),
+          const SizedBox(height: 2),
           Text(
-            item.title,
-            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            value,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
         ],
       ),
     );
   }
-}
 
-class _ActivityItem {
-  final String title;
-  final String subtitle;
-  final IconData icon;
+  // ============================================================
+  // TODAY'S CONSULTATIONS HEADER
+  // ============================================================
+  Widget _buildTodaysConsultationsHeader(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        const Text(
+          "Today's Consultations",
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        GestureDetector(
+          onTap: () {
+            // TODO: Add View All Consultations screen later.
+          },
+          child: const Text(
+            "View All",
+            style: TextStyle(color: primaryColor, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
+    );
+  }
 
-  const _ActivityItem({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-  });
+  // ============================================================
+  // CONSULTATIONS LIST
+  // ============================================================
+  Widget _buildConsultationsList(BuildContext context) {
+    return Column(
+      children: consultations.map((consultation) {
+        return _consultationTile(context, consultation);
+      }).toList(),
+    );
+  }
+
+  // ============================================================
+  // CONSULTATION TILE
+  // ============================================================
+  Widget _consultationTile(
+      BuildContext context,
+      Map<String, String> consultation,
+      ) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        leading: CircleAvatar(
+          backgroundColor: primaryColor.withOpacity(0.1),
+          child: const Icon(Icons.person, color: primaryColor),
+        ),
+        title: Text(
+          consultation["name"] ?? "Unknown Patient",
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(consultation["time"] ?? "No time"),
+        trailing: Text(
+          consultation["status"] ?? "",
+          style: const TextStyle(
+            color: primaryColor,
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          ),
+        ),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => PatientProfileScreen(
+                patientName: consultation["name"]!,
+                patientId: consultation["id"]!,
+                age: consultation["age"]!,
+                gender: consultation["gender"]!,
+                phone: consultation["phone"]!,
+                notes: consultation["notes"]!,
+                sessions: const ["14 Sep 2026", "07 Sep 2026", "31 Aug 2026"],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ============================================================
+  // START CONSULTATION BUTTON
+  // ============================================================
+  Widget _buildStartConsultationButton(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: ElevatedButton.icon(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const NewPatientScreen()),
+          );
+        },
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text(
+          "Start Consultation",
+          style: TextStyle(
+            fontSize: 16,
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primaryColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // BOTTOM NAVIGATION
+  // ============================================================
+  Widget _buildBottomNavBar(BuildContext context) {
+    return BottomNavigationBar(
+      currentIndex: 0,
+      selectedItemColor: primaryColor,
+      unselectedItemColor: Colors.grey,
+      type: BottomNavigationBarType.fixed,
+      onTap: (index) {
+        if (index == 1) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const PatientsScreen()),
+          );
+        }
+      },
+      items: const [
+        BottomNavigationBarItem(icon: Icon(Icons.home), label: "Home"),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.people_outline),
+          label: "Patients",
+        ),
+        BottomNavigationBarItem(icon: Icon(Icons.history), label: "History"),
+        BottomNavigationBarItem(
+          icon: Icon(Icons.person_outline),
+          label: "Profile",
+        ),
+      ],
+    );
+  }
 }
