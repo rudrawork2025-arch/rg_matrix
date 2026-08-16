@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dashboard.dart';
+import 'signup.dart';
 
 
 // -----------------------------------------------------------------------
@@ -286,14 +287,25 @@ class _LoginPageState extends State<LoginPage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Text("Don't have an account?"),
-                      TextButton(
-                        onPressed: () {
-                          // TODO: Navigate to sign-up page
+                      const Text(
+                        "Don't have an account? ",
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const SignUpPage(),
+                            ),
+                          );
                         },
                         child: const Text(
-                          'Sign Up',
-                          style: TextStyle(fontWeight: FontWeight.w600),
+                          "Sign Up",
+                          style: TextStyle(
+                            color: Color(0xFF4B3FE4),
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],
