@@ -1,65 +1,112 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'audio_recorder.dart';
 
 class NewPatientScreen extends StatefulWidget {
   const NewPatientScreen({super.key});
-
   @override
-  State<NewPatientScreen> createState() => _NewPatientScreenState();
+  State createState() => _NewPatientScreenState();
 }
 
-class _NewPatientScreenState extends State<NewPatientScreen> {
+class _NewPatientScreenState extends State {
   static const Color primaryColor = Color(0xFF4B3FE4);
-
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _ageController = TextEditingController();
-  final TextEditingController _patientIdController =
-  TextEditingController();
-
+  final TextEditingController _phoneController = TextEditingController();
   String _selectedGender = 'Male';
+  bool _isSaving = false;
+
+  // CHANGE THIS IP ADDRESS TO YOUR COMPUTER'S LOCAL IP ADDRESS
+  static const String baseUrl = 'http://192.168.0.12:8000';
 
   @override
   void dispose() {
     _nameController.dispose();
     _ageController.dispose();
-    _patientIdController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
-  void _startConsultation() {
+  Future _savePatientAndStartConsultation() async {
     final name = _nameController.text.trim();
-    final age = _ageController.text.trim();
-    final patientId = _patientIdController.text.trim();
+    final ageText = _ageController.text.trim();
+    final phone = _phoneController.text.trim();
 
-    // Validate required fields
     if (name.isEmpty) {
       _showError('Please enter patient name.');
       return;
     }
 
-    if (age.isEmpty) {
+    if (ageText.isEmpty) {
       _showError('Please enter patient age.');
       return;
     }
 
-    // Generate ID if doctor doesn't enter one
-    final finalPatientId = patientId.isEmpty
-        ? 'P-${DateTime.now().millisecondsSinceEpoch}'
-        : patientId;
+    final age = int.tryParse(ageText);
 
-    // Open recorder directly after entering patient details
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ConsultationScreen(
-          patientName: name,
-          patientId: finalPatientId,
-        ),
-      ),
-    );
+    if (age == null) {
+      _showError('Please enter a valid age.');
+      return;
+    }
+
+    if (phone.isEmpty) {
+      _showError('Please enter phone number.');
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+    });
+
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/patients'),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'name': name,
+          'age': age,
+          'gender': _selectedGender,
+          'phone_number': phone,
+        }),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+
+        final patientId = data['id'].toString();
+
+        if (!mounted) return;
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ConsultationScreen(
+              patientName: name,
+              patientId: 'P-$patientId',
+            ),
+          ),
+        );
+      } else {
+        _showError(
+          'Failed to save patient. Status: ${response.statusCode}',
+        );
+      }
+    } catch (e) {
+      _showError('Could not connect to the backend: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
   }
 
   void _showError(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
@@ -71,7 +118,6 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F7FB),
-
       appBar: AppBar(
         backgroundColor: primaryColor,
         foregroundColor: Colors.white,
@@ -83,14 +129,12 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
           ),
         ),
       ),
-
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-
               const Text(
                 'Patient Details',
                 style: TextStyle(
@@ -98,9 +142,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-
               const SizedBox(height: 8),
-
               Text(
                 'Enter the patient information before starting the consultation.',
                 style: TextStyle(
@@ -108,7 +150,6 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                   color: Colors.grey.shade600,
                 ),
               ),
-
               const SizedBox(height: 28),
 
               // ---------------- NAME ----------------
@@ -120,9 +161,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-
               const SizedBox(height: 8),
-
               TextField(
                 controller: _nameController,
                 textCapitalization: TextCapitalization.words,
@@ -137,7 +176,6 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 20),
 
               // ---------------- AGE ----------------
@@ -149,9 +187,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-
               const SizedBox(height: 8),
-
               TextField(
                 controller: _ageController,
                 keyboardType: TextInputType.number,
@@ -166,7 +202,6 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 20),
 
               // ---------------- GENDER ----------------
@@ -178,9 +213,7 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-
               const SizedBox(height: 8),
-
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -216,26 +249,24 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 20),
 
-              // ---------------- PATIENT ID ----------------
+              // ---------------- PHONE NUMBER ----------------
 
               const Text(
-                'Patient ID',
+                'Phone Number',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-
               const SizedBox(height: 8),
-
               TextField(
-                controller: _patientIdController,
+                controller: _phoneController,
+                keyboardType: TextInputType.phone,
                 decoration: InputDecoration(
-                  hintText: 'Optional',
-                  prefixIcon: const Icon(Icons.badge_outlined),
+                  hintText: 'Enter phone number',
+                  prefixIcon: const Icon(Icons.phone_outlined),
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(
@@ -244,23 +275,35 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 35),
 
-              // ---------------- START CONSULTATION ----------------
+              // ---------------- SAVE AND START ----------------
 
               SizedBox(
                 width: double.infinity,
                 height: 54,
                 child: ElevatedButton.icon(
-                  onPressed: _startConsultation,
-                  icon: const Icon(
+                  onPressed: _isSaving
+                      ? null
+                      : _savePatientAndStartConsultation,
+                  icon: _isSaving
+                      ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                      : const Icon(
                     Icons.mic,
                     color: Colors.white,
                   ),
-                  label: const Text(
-                    'Start Consultation',
-                    style: TextStyle(
+                  label: Text(
+                    _isSaving
+                        ? 'Saving Patient...'
+                        : 'Save & Start Consultation',
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -275,12 +318,10 @@ class _NewPatientScreenState extends State<NewPatientScreen> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 15),
-
               Center(
                 child: Text(
-                  'The consultation will begin after you press the button.',
+                  'Patient details will be saved before the consultation begins.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 12,
