@@ -10,11 +10,17 @@ from sqlalchemy.orm import Session
 import models
 import schemas
 from database import engine, SessionLocal, Base
+from transcribe import router as transcribe_router
 
 # This line creates the "patients" table in prism.db if it doesn't exist yet.
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="PRISM Healthcare API")
+
+# The Speech-to-Text feature (POST /transcribe) lives in its own file
+# (transcribe.py) and is plugged in here. It is completely separate
+# from the patient endpoints below.
+app.include_router(transcribe_router)
 
 
 # get_db() creates a new database session for each request,

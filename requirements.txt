@@ -2,3 +2,13 @@ fastapi==0.115.0
 uvicorn==0.30.6
 sqlalchemy==2.0.35
 pydantic==2.9.2
+
+fastapi==0.115.0
+uvicorn==0.30.6
+sqlalchemy==2.0.35
+pydantic==2.9.2
+
+# --- Speech-to-Text feature ---
+python-multipart==0.0.9   # required by FastAPI to handle file uploads
+openai-whisper==20231117  # local Whisper speech-to-text model
+torch                      # required by Whisper to run the model (version auto-resolved per OS)
