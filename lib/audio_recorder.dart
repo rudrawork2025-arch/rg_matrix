@@ -1,3 +1,23 @@
+// consultation_screen.dart
+// ============================================================================
+// Audio Recorder / Consultation screen (FULLY EDITED)
+//
+// Changes made vs. the original:
+//   1. Removed the now-unused `dart:convert` / `http` imports — the file
+//      upload + conversion logic lives in `use_recording.dart`.
+//   2. Added  import 'use_recording.dart';
+//   3. Added `_openUseRecordingScreen()` — opens UseRecordingScreen, which
+//      uploads the recorded file to the FastAPI backend (/transcribe),
+//      converts it to text, and returns the final text.
+//   4. The "Use Recording" button is now wired to _openUseRecordingScreen().
+//      When the user taps "Use This Text" on that screen, this screen
+//      replaces the live transcription with the final server result.
+//
+// NOTE: put `use_recording.dart` in the SAME folder as this file.
+// If it lives somewhere else, fix the import path, e.g.:
+//   import '../screens/use_recording.dart';
+// ============================================================================
+
 import 'dart:async';
 import 'dart:io';
 
@@ -6,6 +26,9 @@ import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+
+import 'use_recording.dart';
 
 class ConsultationScreen extends StatefulWidget {
   final String patientName;
@@ -26,8 +49,20 @@ enum RecordingState { idle, recording, paused, stopped }
 class _ConsultationScreenState extends State<ConsultationScreen> {
   static const Color primaryColor = Color(0xFF4B3FE4);
 
+  // Base URL of your FastAPI backend:
+  //   Android emulator -> http://10.0.2.2:8000
+  //   iOS simulator    -> http://localhost:8000
+  //   Real phone       -> http://<YOUR_COMPUTER_LAN_IP>:8000
+  static const String _apiBaseUrl = 'http://192.168.31.187:8000';
+
   final AudioRecorder _audioRecorder = AudioRecorder();
   final AudioPlayer _audioPlayer = AudioPlayer();
+
+// Speech to Text
+  final stt.SpeechToText _speechToText = stt.SpeechToText();
+
+  bool _speechEnabled = false;
+  String _transcription = '';
 
   RecordingState _state = RecordingState.idle;
   Timer? _timer;
@@ -40,6 +75,8 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
   @override
   void initState() {
     super.initState();
+
+    _initializeSpeech();
 
     _playerStateSub = _audioPlayer.playerStateStream.listen((playerState) {
       final isPlaying = playerState.playing;
@@ -62,12 +99,70 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     });
   }
 
+// ---------------- INITIALIZE SPEECH TO TEXT ----------------
+  Future<void> _initializeSpeech() async {
+    _speechEnabled = await _speechToText.initialize(
+      onStatus: (status) {
+        print('Speech status: $status');
+      },
+      onError: (error) {
+        print('Speech error: $error');
+      },
+    );
+
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+// ---------------- START SPEECH TO TEXT ----------------
+  Future<void> _startSpeechToText() async {
+    if (!_speechEnabled) {
+      await _initializeSpeech();
+    }
+
+    if (!_speechEnabled) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Speech recognition is not available.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    await _speechToText.listen(
+      onResult: (result) {
+        if (mounted) {
+          setState(() {
+            _transcription = result.recognizedWords;
+          });
+        }
+      },
+      listenMode: stt.ListenMode.dictation,
+      partialResults: true,
+      cancelOnError: true,
+    );
+  }
+
+// ---------------- STOP SPEECH TO TEXT ----------------
+  Future<void> _stopSpeechToText() async {
+    if (_speechToText.isListening) {
+      await _speechToText.stop();
+    }
+  }
+
   @override
   void dispose() {
     _timer?.cancel();
     _playerStateSub?.cancel();
+
+    _speechToText.stop();
+
     _audioRecorder.dispose();
     _audioPlayer.dispose();
+
     super.dispose();
   }
 
@@ -79,10 +174,13 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
 
   void _startTimer() {
     _timer?.cancel();
+
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      setState(() {
-        _secondsElapsed++;
-      });
+      if (mounted) {
+        setState(() {
+          _secondsElapsed++;
+        });
+      }
     });
   }
 
@@ -90,24 +188,35 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     _timer?.cancel();
   }
 
-  // ---------------- START RECORDING ----------------
+// ---------------- START RECORDING ----------------
   Future<void> _startRecording() async {
     final hasPermission = await _audioRecorder.hasPermission();
+
     if (!hasPermission) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Microphone permission is required.")),
+          const SnackBar(
+            content: Text("Microphone permission is required."),
+          ),
         );
       }
       return;
     }
 
     final dir = await getApplicationDocumentsDirectory();
-    final fileName = "consultation_${DateTime.now().millisecondsSinceEpoch}.m4a";
+
+    final fileName =
+        "consultation_${DateTime.now().millisecondsSinceEpoch}.m4a";
+
     final filePath = p.join(dir.path, fileName);
 
     await _audioRecorder.start(
-      const RecordConfig(encoder: AudioEncoder.aacLc),
+      const RecordConfig(
+        encoder: AudioEncoder.aacLc,
+        sampleRate: 44100,
+        numChannels: 1,
+        bitRate: 128000,
+      ),
       path: filePath,
     );
 
@@ -115,80 +224,204 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
       _state = RecordingState.recording;
       _secondsElapsed = 0;
       _recordedFilePath = filePath;
+      _transcription = '';
     });
+
     _startTimer();
+
+// Start live speech recognition
+    await _startSpeechToText();
   }
 
-  // ---------------- PAUSE / RESUME ----------------
+// ---------------- PAUSE / RESUME ----------------
   Future<void> _togglePause() async {
     if (_state == RecordingState.recording) {
       await _audioRecorder.pause();
+
+      await _stopSpeechToText();
+
       _stopTimer();
-      setState(() => _state = RecordingState.paused);
+
+      setState(() {
+        _state = RecordingState.paused;
+      });
     } else if (_state == RecordingState.paused) {
       await _audioRecorder.resume();
+
       _startTimer();
-      setState(() => _state = RecordingState.recording);
+
+      setState(() {
+        _state = RecordingState.recording;
+      });
+
+      // Start listening again
+      await _startSpeechToText();
     }
   }
 
-  // ---------------- STOP ----------------
+// ---------------- STOP RECORDING ----------------
+  // ---------------- STOP RECORDING ----------------
   Future<void> _stopRecording() async {
-    final path = await _audioRecorder.stop();
-    _stopTimer();
-    setState(() {
-      _state = RecordingState.stopped;
-      _recordedFilePath = path ?? _recordedFilePath;
-    });
-  }
+    try {
+      await _stopSpeechToText();
 
-  // ---------------- PLAY / PAUSE PLAYBACK (just_audio) ----------------
-  Future<void> _togglePlayback() async {
-    if (_recordedFilePath == null) return;
+      final stoppedPath = await _audioRecorder.stop();
 
-    final file = File(_recordedFilePath!);
+      _stopTimer();
 
-    if (!await file.exists()) {
+      final finalPath = stoppedPath ?? _recordedFilePath;
+
+      if (finalPath == null) {
+        throw Exception("Recording path is empty.");
+      }
+
+      final file = File(finalPath);
+
+      // Give the recorder a moment to finish writing the file.
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      if (!await file.exists()) {
+        throw Exception("Recording file was not created.");
+      }
+
+      final fileSize = await file.length();
+
+      debugPrint("Recorded file path: $finalPath");
+      debugPrint("Recorded file size: $fileSize bytes");
+
+      if (fileSize == 0) {
+        throw Exception("Recording file is empty.");
+      }
+
+      await _audioPlayer.stop();
+
+      if (mounted) {
+        setState(() {
+          _state = RecordingState.stopped;
+          _recordedFilePath = finalPath;
+          _isPlaying = false;
+        });
+      }
+    } catch (error) {
+      debugPrint("Stop recording error: $error");
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Recording file not found."),
+          SnackBar(
+            content: Text("Could not save recording: $error"),
           ),
         );
       }
-      return;
-    }
-
-    if (_isPlaying) {
-      // Currently playing -> pause
-      await _audioPlayer.pause();
-    } else {
-      // Always load the CURRENT recording.
-      await _audioPlayer.stop();
-
-      await _audioPlayer.setFilePath(
-        _recordedFilePath!,
-      );
-
-      await _audioPlayer.play();
     }
   }
 
-  // ---------------- RESTART / NEW RECORDING ----------------
+  // ---------------- PLAY / PAUSE PLAYBACK ----------------
+  Future<void> _togglePlayback() async {
+    final path = _recordedFilePath;
+
+    if (path == null || path.isEmpty) {
+      return;
+    }
+
+    try {
+      final file = File(path);
+
+      if (!await file.exists()) {
+        throw Exception("Recording file does not exist.");
+      }
+
+      final fileSize = await file.length();
+
+      debugPrint("Playing file: $path");
+      debugPrint("File size: $fileSize bytes");
+
+      if (fileSize == 0) {
+        throw Exception("Recording file is empty.");
+      }
+
+      if (_isPlaying) {
+        await _audioPlayer.pause();
+        return;
+      }
+
+      await _audioPlayer.stop();
+
+      // Load the complete recorded file again.
+      await _audioPlayer.setAudioSource(
+        AudioSource.file(path),
+      );
+
+      await _audioPlayer.play();
+    } catch (error) {
+      debugPrint("Playback error: $error");
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Playback failed: $error"),
+          ),
+        );
+      }
+    }
+  }
+
+// ---------------- RESTART / NEW RECORDING ----------------
   Future<void> _resetRecording() async {
-    // Stop the old playback completely.
     await _audioPlayer.stop();
 
-    // Reset the recorder state.
+    await _stopSpeechToText();
+
     setState(() {
       _state = RecordingState.idle;
       _secondsElapsed = 0;
       _recordedFilePath = null;
       _isPlaying = false;
+      _transcription = '';
     });
 
-    // Start a completely new recording.
     await _startRecording();
+  }
+
+// ---------------- USE RECORDING (open screen that uploads + converts) ----------------
+  Future<void> _openUseRecordingScreen() async {
+    final path = _recordedFilePath;
+    if (path == null) return;
+
+    // Open the dedicated "Use Recording" screen. It automatically uploads
+    // the audio file to the backend (/transcribe), shows a spinner while
+    // Whisper converts it, and pops back with the final text when the user
+    // taps "Use This Text".
+    final text = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => UseRecordingScreen(
+          filePath: path,
+          patientName: widget.patientName,
+          patientId: widget.patientId,
+          baseUrl: _apiBaseUrl,
+        ),
+      ),
+    );
+
+    if (!mounted || text == null || text.isEmpty) return;
+
+    setState(() {
+      // Replace the live (on-device) transcription with the final,
+      // more accurate server-side Whisper result.
+      _transcription = text;
+    });
+
+    // TODO (next step): open your note-creation screen with this text, e.g.
+    //   Navigator.push(
+    //     context,
+    //     MaterialPageRoute(
+    //       builder: (_) => YourNoteScreen(
+    //         patientName: widget.patientName,
+    //         patientId: widget.patientId,
+    //         initialText: text,
+    //       ),
+    //     ),
+    //   );
   }
 
   @override
@@ -201,7 +434,10 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
             _buildAppBar(context),
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 24,
+                ),
                 child: Column(
                   children: [
                     _buildPatientInfo(),
@@ -227,6 +463,9 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                     const SizedBox(height: 30),
                     _buildControlButtons(),
                     const SizedBox(height: 24),
+                    // LIVE TRANSCRIPTION
+                    _buildTranscriptionCard(),
+                    const SizedBox(height: 16),
                     if (_state == RecordingState.stopped)
                       _buildPlaybackCard()
                     else
@@ -241,16 +480,22 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     );
   }
 
-  // ---------------- APP BAR ----------------
+// ---------------- APP BAR ----------------
   Widget _buildAppBar(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 14,
+      ),
       color: primaryColor,
       child: Row(
         children: [
           IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            icon: const Icon(
+              Icons.arrow_back,
+              color: Colors.white,
+            ),
             onPressed: () {
               Navigator.pop(context);
             },
@@ -266,19 +511,22 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
               ),
             ),
           ),
-          const SizedBox(width: 48), // balances the back button
+          const SizedBox(width: 48),
         ],
       ),
     );
   }
 
-  // ---------------- PATIENT INFO ----------------
+// ---------------- PATIENT INFO ----------------
   Widget _buildPatientInfo() {
     return Column(
       children: [
         const Text(
           "Patient",
-          style: TextStyle(color: Colors.grey, fontSize: 13),
+          style: TextStyle(
+            color: Colors.grey,
+            fontSize: 13,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
@@ -293,7 +541,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     );
   }
 
-  // ---------------- MIC CIRCLE (tap to start if idle) ----------------
+// ---------------- MIC CIRCLE ----------------
   Widget _buildMicCircle() {
     return GestureDetector(
       onTap: () {
@@ -316,21 +564,29 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
               shape: BoxShape.circle,
               color: primaryColor,
             ),
-            child: const Icon(Icons.mic, color: Colors.white, size: 48),
+            child: const Icon(
+              Icons.mic,
+              color: Colors.white,
+              size: 48,
+            ),
           ),
         ),
       ),
     );
   }
 
+// ---------------- STATUS ----------------
   String _statusLabel() {
     switch (_state) {
       case RecordingState.idle:
         return "Tap mic to start";
+
       case RecordingState.recording:
-        return "Recording...";
+        return "Recording and transcribing...";
+
       case RecordingState.paused:
         return "Paused";
+
       case RecordingState.stopped:
         return "Recording stopped";
     }
@@ -340,22 +596,24 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     switch (_state) {
       case RecordingState.recording:
         return primaryColor;
+
       case RecordingState.paused:
         return Colors.orange;
+
       case RecordingState.stopped:
         return Colors.green;
+
       default:
         return Colors.grey;
     }
   }
 
-  // ---------------- PAUSE / STOP BUTTONS ----------------
+// ---------------- PAUSE / STOP BUTTONS ----------------
   Widget _buildControlButtons() {
     final bool isActive =
         _state == RecordingState.recording || _state == RecordingState.paused;
 
     if (!isActive) {
-      // Nothing recording yet, or already stopped -> no pause/stop row
       return const SizedBox.shrink();
     }
 
@@ -372,12 +630,17 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
             ),
             label: Text(
               _state == RecordingState.recording ? "Pause" : "Resume",
-              style: const TextStyle(color: primaryColor, fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                color: primaryColor,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             style: OutlinedButton.styleFrom(
               side: const BorderSide(color: primaryColor),
               padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           ),
         ),
@@ -385,15 +648,23 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
         Expanded(
           child: ElevatedButton.icon(
             onPressed: _stopRecording,
-            icon: const Icon(Icons.stop_circle, color: Colors.white),
+            icon: const Icon(
+              Icons.stop_circle,
+              color: Colors.white,
+            ),
             label: const Text(
               "Stop",
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.redAccent,
               padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           ),
         ),
@@ -401,7 +672,57 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     );
   }
 
-  // ---------------- HINT CARD (before/while recording) ----------------
+// ---------------- LIVE TRANSCRIPTION CARD ----------------
+  Widget _buildTranscriptionCard() {
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(
+        minHeight: 140,
+      ),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(
+                Icons.text_snippet_outlined,
+                color: primaryColor,
+              ),
+              SizedBox(width: 8),
+              Text(
+                "Live Transcription",
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            _transcription.isEmpty
+                ? "Start speaking and your words will appear here..."
+                : _transcription,
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.5,
+              color: _transcription.isEmpty ? Colors.grey : Colors.black87,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+// ---------------- HINT CARD ----------------
   Widget _buildHintCard() {
     return Container(
       width: double.infinity,
@@ -409,26 +730,33 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
       ),
       child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             "Speak now...",
-            style: TextStyle(fontWeight: FontWeight.w600),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+            ),
           ),
           SizedBox(height: 4),
           Text(
-            "AI will convert your conversation into clinical notes.",
-            style: TextStyle(color: Colors.grey, fontSize: 13),
+            "Your conversation will be converted into text.",
+            style: TextStyle(
+              color: Colors.grey,
+              fontSize: 13,
+            ),
           ),
         ],
       ),
     );
   }
 
-  // ---------------- PLAYBACK CARD (after stop) ----------------
+// ---------------- PLAYBACK CARD ----------------
   Widget _buildPlaybackCard() {
     return Container(
       width: double.infinity,
@@ -436,25 +764,35 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
             "Recording ready",
-            style: TextStyle(fontWeight: FontWeight.w600),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             "Duration: $_formattedTime",
-            style: const TextStyle(color: Colors.grey, fontSize: 13),
+            style: const TextStyle(
+              color: Colors.grey,
+              fontSize: 13,
+            ),
           ),
           if (_recordedFilePath != null) ...[
             const SizedBox(height: 4),
             Text(
               "File: ${p.basename(_recordedFilePath!)}",
-              style: const TextStyle(color: Colors.grey, fontSize: 11),
+              style: const TextStyle(
+                color: Colors.grey,
+                fontSize: 11,
+              ),
             ),
           ],
           const SizedBox(height: 14),
@@ -469,32 +807,48 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
                   ),
                   label: Text(
                     _isPlaying ? "Pause" : "Play Recording",
-                    style: const TextStyle(color: Colors.white),
+                    style: const TextStyle(
+                      color: Colors.white,
+                    ),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: primaryColor,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () {
-                    // TODO: Handle "Use this recording" / send to AI tap here
-                    // "_recordedFilePath" holds the local file path of the recording
-                    // Example: uploadRecordingForNotes(_recordedFilePath!);
-                  },
-                  icon: const Icon(Icons.check_circle_outline, color: primaryColor),
+                  // ---- EDITED: "Use Recording" now opens UseRecordingScreen ----
+                  onPressed: _recordedFilePath == null
+                      ? null
+                      : _openUseRecordingScreen,
+                  icon: const Icon(
+                    Icons.check_circle_outline,
+                    color: primaryColor,
+                  ),
                   label: const Text(
                     "Use Recording",
-                    style: TextStyle(color: primaryColor),
+                    style: TextStyle(
+                      color: primaryColor,
+                    ),
                   ),
                   style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: primaryColor),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    side: const BorderSide(
+                      color: primaryColor,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
               ),
@@ -506,7 +860,9 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
               onPressed: _resetRecording,
               child: const Text(
                 "Record Again",
-                style: TextStyle(color: Colors.redAccent),
+                style: TextStyle(
+                  color: Colors.redAccent,
+                ),
               ),
             ),
           ),

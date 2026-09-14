@@ -18,7 +18,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
   static const Color primaryColor = Color(0xFF4B3FE4);
 
 // Use the SAME IP address as new_patient.dart
-  static const String baseUrl = 'http://192.168.0.12:8000';
+  static const String baseUrl = 'http://192.168.31.187:8000';
   final TextEditingController _searchController = TextEditingController();
 
   int _currentNavIndex = 1;
@@ -86,22 +86,13 @@ class _PatientsScreenState extends State<PatientsScreen> {
         });
       }
     } catch (e) {
-      print('PATIENT API ERROR: $e');
+      debugPrint('PATIENT API ERROR: $e');
 
       if (!mounted) return;
 
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Error: $e';
-      });
-    } catch (e) {
-      print('PATIENT API ERROR: $e');
-
-      if (!mounted) return;
-
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Error: $e';
+        _errorMessage = 'Could not connect to the backend: $e';
       });
     }
   }
