@@ -1,11 +1,14 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Added for SystemUiOverlayStyle
 import 'package:http/http.dart' as http;
 
 import 'dashboard.dart';
 import 'patient_profile_screen.dart';
 import 'new_patient.dart';
+import 'notes_screen.dart';
+import 'profile_screen.dart'; // Added import for Profile Screen routing
 
 class PatientsScreen extends StatefulWidget {
   const PatientsScreen({super.key});
@@ -16,9 +19,12 @@ class PatientsScreen extends StatefulWidget {
 
 class _PatientsScreenState extends State<PatientsScreen> {
   static const Color primaryColor = Color(0xFF4B3FE4);
+  static const Color backgroundColor = Color(0xFF161921); // Dark background
+  static const Color cardColor = Color(0xFF222631); // Dark card background
 
-// Use the SAME IP address as new_patient.dart
-  static const String baseUrl = 'http://192.168.31.187:8000';
+  // Use the SAME IP address as new_patient.dart
+  // Change the IP to 127.0.0.1 to route through your wireless debugging connection
+  static const String baseUrl = 'http://127.0.0.1:8000';
   final TextEditingController _searchController = TextEditingController();
 
   int _currentNavIndex = 1;
@@ -36,6 +42,25 @@ class _PatientsScreenState extends State<PatientsScreen> {
     _loadPatients();
   }
 
+  // ============================================================
+  // CUSTOM FADE ANIMATION NAVIGATOR
+  // ============================================================
+  void _navigateWithFade(BuildContext context, Widget screen) {
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => screen,
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 300),
+      ),
+    );
+  }
+
 // ---------------- LOAD PATIENTS FROM BACKEND ----------------
   Future<void> _loadPatients() async {
     if (mounted) {
@@ -50,7 +75,7 @@ class _PatientsScreenState extends State<PatientsScreen> {
           .get(
         Uri.parse('$baseUrl/patients'),
       )
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
@@ -139,23 +164,29 @@ class _PatientsScreenState extends State<PatientsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF7F7FB),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildAppBar(context),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: _buildSearchBar(),
-            ),
-            Expanded(
-              child: _buildPatientsContent(),
-            ),
-          ],
-        ),
+    // Wrapped to fix invisible status bar icons in dark mode
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
       ),
-      bottomNavigationBar: _buildBottomNavBar(),
+      child: Scaffold(
+        backgroundColor: backgroundColor, // Applied deep dark background
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildAppBar(context),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: _buildSearchBar(),
+              ),
+              Expanded(
+                child: _buildPatientsContent(),
+              ),
+            ],
+          ),
+        ),
+        bottomNavigationBar: _buildBottomNavBar(),
+      ),
     );
   }
 
@@ -208,15 +239,15 @@ class _PatientsScreenState extends State<PatientsScreen> {
       return RefreshIndicator(
         onRefresh: _loadPatients,
         child: ListView(
-          children: const [
-            SizedBox(height: 120),
+          children: [
+            const SizedBox(height: 120),
             Icon(
               Icons.people_outline,
               size: 60,
-              color: Colors.grey,
+              color: Colors.grey.shade600, // Slightly darker grey for dark theme
             ),
-            SizedBox(height: 16),
-            Center(
+            const SizedBox(height: 16),
+            const Center(
               child: Text(
                 'No patients found',
                 style: TextStyle(
@@ -253,14 +284,14 @@ class _PatientsScreenState extends State<PatientsScreen> {
         horizontal: 8,
         vertical: 14,
       ),
-      color: primaryColor,
+      color: Colors.transparent, // Blends seamlessly into the dark background
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           IconButton(
             icon: const Icon(
               Icons.arrow_back,
-              color: Colors.white,
+              color: Colors.white, // Icons remain white
             ),
             onPressed: () {
               Navigator.pop(context);
@@ -300,11 +331,11 @@ class _PatientsScreenState extends State<PatientsScreen> {
   Widget _buildSearchBar() {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardColor, // Dark card background
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withOpacity(0.2), // Darker shadow
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
@@ -312,15 +343,16 @@ class _PatientsScreenState extends State<PatientsScreen> {
       ),
       child: TextField(
         controller: _searchController,
-        decoration: const InputDecoration(
+        style: const TextStyle(color: Colors.white), // White text when typing
+        decoration: InputDecoration(
           hintText: 'Search patients...',
-          hintStyle: TextStyle(color: Colors.grey),
+          hintStyle: TextStyle(color: Colors.grey[400]), // Lighter hint text
           prefixIcon: Icon(
             Icons.search,
-            color: Colors.grey,
+            color: Colors.grey[400],
           ),
           border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(
+          contentPadding: const EdgeInsets.symmetric(
             vertical: 14,
             horizontal: 12,
           ),
@@ -337,11 +369,11 @@ class _PatientsScreenState extends State<PatientsScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardColor, // Dark card background
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withOpacity(0.2),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
@@ -367,20 +399,21 @@ class _PatientsScreenState extends State<PatientsScreen> {
           patient['name']!,
           style: const TextStyle(
             fontWeight: FontWeight.w600,
+            color: Colors.white, // White text for patient name
           ),
         ),
         subtitle: Text(
           '${patient['id']}\nLast session: ${patient['lastSession']}',
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12,
-            color: Colors.grey,
+            color: Colors.grey[400], // Lighter grey for subtitle
             height: 1.4,
           ),
         ),
         isThreeLine: true,
-        trailing: const Icon(
+        trailing: Icon(
           Icons.chevron_right,
-          color: Colors.grey,
+          color: Colors.grey[500],
         ),
         onTap: () {
           Navigator.push(
@@ -404,45 +437,37 @@ class _PatientsScreenState extends State<PatientsScreen> {
     );
   }
 
-// ---------------- BOTTOM NAV BAR ----------------
+// ---------------- SLEEK BOTTOM NAV BAR (ANIMATED) ----------------
   Widget _buildBottomNavBar() {
-    return BottomNavigationBar(
-      currentIndex: _currentNavIndex,
-      selectedItemColor: primaryColor,
-      unselectedItemColor: Colors.grey,
-      type: BottomNavigationBarType.fixed,
-      onTap: (index) {
-        setState(() {
-          _currentNavIndex = index;
-        });
+    return Container(
+      decoration: const BoxDecoration(
+        color: backgroundColor, // Match dark background
+        border: Border(top: BorderSide(color: cardColor, width: 1)), // Subtle dark border line
+      ),
+      child: BottomNavigationBar(
+        currentIndex: _currentNavIndex,
+        elevation: 0,
+        backgroundColor: backgroundColor,
+        selectedItemColor: primaryColor,
+        unselectedItemColor: Colors.grey.shade600,
+        showSelectedLabels: true,
+        showUnselectedLabels: false,
+        type: BottomNavigationBarType.fixed,
+        onTap: (index) {
+          if (index == _currentNavIndex) return; // Prevent routing to the same screen
 
-        if (index == 0) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const DoctorHomeScreen(),
-            ),
-          );
-        }
-      },
-      items: const [
-        BottomNavigationBarItem(
-          icon: Icon(Icons.home),
-          label: 'Home',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.people),
-          label: 'Patients',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.history),
-          label: 'History',
-        ),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.person_outline),
-          label: 'Profile',
-        ),
-      ],
+          if (index == 0) _navigateWithFade(context, const DoctorHomeScreen());
+          // if (index == 1) do nothing, we are already on PatientsScreen
+          if (index == 2) _navigateWithFade(context, const NotesScreen());
+          if (index == 3) _navigateWithFade(context, const ProfileScreen());
+        },
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home_outlined), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.people), label: 'Patients'), // Solid icon when active
+          BottomNavigationBarItem(icon: Icon(Icons.description_outlined), label: 'Notes'),
+          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Profile'),
+        ],
+      ),
     );
   }
 }

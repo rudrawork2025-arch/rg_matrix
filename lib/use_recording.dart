@@ -1,221 +1,367 @@
-// use_recording.dart
-//
-// Screen shown when the user taps "Use Recording" in the consultation
-// (audio recorder) screen.
-//
-// What it does:
-//   1. Receives the recorded audio file path (plus patient info).
-//   2. Automatically uploads the file to the FastAPI backend:
-//        POST {baseUrl}/transcribe   (multipart/form-data, field name = "file")
-//   3. Shows a loading state while the backend (Whisper) converts it.
-//   4. Shows the returned text in an editable box.
-//   5. When the user taps "Use This Text", pops back and returns the
-//      (possibly edited) text via Navigator.pop(context, text).
-//
-// The caller screen decides what to do with the returned text
-// (e.g. create a note / open the note editor).
-
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:path/path.dart' as p;
 
-const Color _kPrimary = Color(0xFF4B3FE4);
+// Make sure this file exists in your lib folder!
+import 'clinical_note_editor.dart';
 
 class UseRecordingScreen extends StatefulWidget {
-  /// Absolute path of the recorded audio file on the device.
-  final String filePath;
+  final String audioPath;
 
-  /// Patient details (optional, shown only as context).
-  final String patientName;
-  final String patientId;
-
-  /// Base URL of your FastAPI backend.
-  ///
-  ///   Android emulator  -> http://10.0.2.2:8000
-  ///   iOS simulator     -> http://localhost:8000
-  ///   Real phone        -> http://<YOUR_COMPUTER_LAN_IP>:8000
-  final String baseUrl;
-
-  const UseRecordingScreen({
-    super.key,
-    required this.filePath,
-    this.patientName = 'Patient',
-    this.patientId = '',
-    this.baseUrl = 'http://10.0.2.2:8000',
-  });
+  const UseRecordingScreen({super.key, required this.audioPath});
 
   @override
   State<UseRecordingScreen> createState() => _UseRecordingScreenState();
 }
 
 class _UseRecordingScreenState extends State<UseRecordingScreen> {
-  final TextEditingController _textController = TextEditingController();
-
-  bool _isConverting = false;
-  bool _gotResult = false;
+  bool _isLoading = true;
+  String _transcribedText = '';
+  String _detectedLanguage = '';
+  double? _duration;
   String? _errorMessage;
+
+  // ADB Tunnel configuration
+  final String _endpointUrl = 'http://127.0.0.1:8000/transcribe';
 
   @override
   void initState() {
     super.initState();
-    // Start uploading + converting as soon as this screen opens.
-    _convertToText();
+    _sendAudioToBackend();
   }
 
-  @override
-  void dispose() {
-    _textController.dispose();
-    super.dispose();
-  }
-
-  // ---------------------------------------------------------------------
-  // Upload the audio file and convert it to text (Whisper on the backend).
-  // ---------------------------------------------------------------------
-  Future<void> _convertToText() async {
+  Future<void> _sendAudioToBackend() async {
     setState(() {
-      _isConverting = true;
-      _gotResult = false;
+      _isLoading = true;
       _errorMessage = null;
     });
 
-    final file = File(widget.filePath);
-    if (!await file.exists()) {
-      _setError('Recording file not found:\n${widget.filePath}');
-      return;
-    }
-
     try {
-      final request = http.MultipartRequest(
-        'POST',
-        Uri.parse('${widget.baseUrl}/transcribe'),
-      );
+      final file = File(widget.audioPath);
+      if (!await file.exists()) {
+        throw Exception("Audio recording file not found at ${widget.audioPath}");
+      }
 
-      // The field name MUST be "file" — that is what the FastAPI
-      // endpoint expects (UploadFile = File(...)).
+      final request = http.MultipartRequest('POST', Uri.parse(_endpointUrl));
+
       request.files.add(
-        await http.MultipartFile.fromPath(
-          'file',
-          widget.filePath,
-          filename: p.basename(widget.filePath),
-        ),
+        await http.MultipartFile.fromPath('file', widget.audioPath),
       );
 
-      // Whisper can take a while (especially the very first request,
-      // while the backend loads the model), so allow up to 3 minutes.
-      final streamed = await request.send().timeout(
-        const Duration(minutes: 3),
-      );
-      final response = await http.Response.fromStream(streamed);
-
-      if (!mounted) return;
+      // 60-second timeout to give Whisper AI plenty of time to process
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 60));
+      final response = await http.Response.fromStream(streamedResponse);
 
       if (response.statusCode == 200) {
-        String text = '';
-        try {
-          final data = jsonDecode(utf8.decode(response.bodyBytes))
-          as Map<String, dynamic>;
-          text = (data['text'] as String? ?? '').trim();
-        } catch (_) {
-          // Not JSON for some reason — fall back to plain text body.
-          text = utf8.decode(response.bodyBytes).trim();
-        }
-
+        final Map<String, dynamic> data = jsonDecode(response.body);
         setState(() {
-          _isConverting = false;
-          _gotResult = true;
-          _textController.text = text;
+          _transcribedText = data['text'] ?? '';
+          _detectedLanguage = data['language'] ?? 'Unknown';
+          _duration = (data['duration'] as num?)?.toDouble();
+          _isLoading = false;
         });
-
-        if (text.isEmpty) {
-          _showSnack('No speech detected. Please record again.');
-        }
       } else {
-        // Try to show the backend's "detail" message if it exists.
-        String detail = 'Server error (${response.statusCode})';
-        try {
-          final err = jsonDecode(utf8.decode(response.bodyBytes));
-          if (err is Map<String, dynamic> && err['detail'] != null) {
-            detail = err['detail'].toString();
-          }
-        } catch (_) {}
-        _setError(detail);
+        final errorData = jsonDecode(response.body);
+        setState(() {
+          _errorMessage = errorData['detail'] ?? 'Failed to transcribe audio';
+          _isLoading = false;
+        });
       }
-    } on TimeoutException {
-      _setError(
-        'Request timed out. The backend may still be loading the '
-            'Whisper model on the very first call. Please try again.',
-      );
     } catch (e) {
-      _setError(
-        'Could not reach the server.\n'
-            'Check that the backend is running and the base URL is correct.\n\n'
-            '$e',
-      );
+      setState(() {
+        _errorMessage = 'Connection error: $e';
+        _isLoading = false;
+      });
     }
   }
 
-  void _setError(String message) {
-    if (!mounted) return;
-    setState(() {
-      _isConverting = false;
-      _gotResult = false;
-      _errorMessage = message;
-    });
-  }
-
-  void _showSnack(String message) {
-    if (!mounted) return;
+  // ---- Added Copy to Clipboard Feature ----
+  void _copyToClipboard() {
+    Clipboard.setData(ClipboardData(text: _transcribedText));
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(
+        content: const Row(
+          children: [
+            Icon(Icons.check_circle_outline, color: Colors.white),
+            SizedBox(width: 10),
+            Text(
+              "Clinical note copied to clipboard",
+              style: TextStyle(fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
+        backgroundColor: const Color(0xFF14B8A6), // Medical Teal
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ),
     );
   }
 
-  // Called by the "Use This Text" button. Returns the text to the
-  // previous screen (the consultation screen).
-  void _confirmText() {
-    final text = _textController.text.trim();
-    if (text.isEmpty) {
-      _showSnack('The text is empty. Record again or type something.');
-      return;
-    }
-    Navigator.pop(context, text);
-  }
-
-  // ---------------------------------------------------------------------
-  // UI
-  // ---------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
+    // Premium Dark Theme Colors
+    const bgColor = Color(0xFF0F1115);
+    const cardColor = Color(0xFF181B21);
+    const indigoAccent = Color(0xFF6366F1);
+    const tealAccent = Color(0xFF14B8A6);
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F7FB),
+      backgroundColor: bgColor,
       appBar: AppBar(
-        backgroundColor: _kPrimary,
-        foregroundColor: Colors.white,
-        title: const Text('Use Recording'),
+        backgroundColor: bgColor,
+        elevation: 0,
         centerTitle: true,
+        title: const Text(
+          'AI Consultation Note',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.5,
+          ),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white70, size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _buildPatientCard(),
-              const SizedBox(height: 20),
-              if (_isConverting)
-                _buildConvertingCard()
-              else if (_errorMessage != null)
-                _buildErrorCard()
-              else if (_gotResult)
-                  _buildResultCard()
-                else
-                  _buildErrorCard(
-                    message: 'Unexpected state — please tap Try Again.',
+              // ---------------- LOADING STATE ----------------
+              if (_isLoading) ...[
+                const Spacer(),
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: cardColor,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: indigoAccent.withOpacity(0.15),
+                          blurRadius: 30,
+                          spreadRadius: 10,
+                        )
+                      ],
+                    ),
+                    child: const CircularProgressIndicator(
+                      color: indigoAccent,
+                      strokeWidth: 3,
+                    ),
                   ),
+                ),
+                const SizedBox(height: 32),
+                const Text(
+                  'Prism AI is analyzing audio...',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Translating & structuring clinical note',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 14),
+                ),
+                const Spacer(),
+              ]
+
+              // ---------------- ERROR STATE ----------------
+              else if (_errorMessage != null) ...[
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 48),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  _errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.redAccent, fontSize: 15, height: 1.5),
+                ),
+                const SizedBox(height: 32),
+                Center(
+                  child: ElevatedButton.icon(
+                    onPressed: _sendAudioToBackend,
+                    icon: const Icon(Icons.refresh, color: Colors.white),
+                    label: const Text('Retry Transcription', style: TextStyle(color: Colors.white)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: cardColor,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(color: Colors.white.withOpacity(0.1)),
+                      ),
+                    ),
+                  ),
+                ),
+                const Spacer(),
+              ]
+
+              // ---------------- SUCCESS UI STATE ----------------
+              else ...[
+                  // Metadata Badges (Language & Duration)
+                  Row(
+                    children: [
+                      _buildBadge(
+                        icon: Icons.language,
+                        text: _detectedLanguage.toUpperCase(),
+                        color: indigoAccent,
+                      ),
+                      const SizedBox(width: 12),
+                      if (_duration != null)
+                        _buildBadge(
+                          icon: Icons.timer_outlined,
+                          text: '${_duration!.toStringAsFixed(1)}s',
+                          color: tealAccent,
+                        ),
+                      const Spacer(),
+                      // Status dot
+                      Row(
+                        children: [
+                          Container(
+                            width: 8, height: 8,
+                            decoration: const BoxDecoration(color: tealAccent, shape: BoxShape.circle),
+                          ),
+                          const SizedBox(width: 6),
+                          const Text("Ready", style: TextStyle(color: tealAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+                        ],
+                      )
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Main Transcription Card
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: cardColor,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white.withOpacity(0.08)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Card Header
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.02),
+                              border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.05))),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.auto_awesome, color: indigoAccent, size: 16),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      "Auto-Translated Note",
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.9),
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                // Copy Button
+                                InkWell(
+                                  onTap: _copyToClipboard,
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(6.0),
+                                    child: Icon(Icons.copy_rounded, color: Colors.white.withOpacity(0.5), size: 18),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Scrollable Text Area
+                          Expanded(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.all(20),
+                              child: SelectableText(
+                                _transcribedText,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  height: 1.7,
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Bottom Action Buttons
+                  ElevatedButton(
+                    onPressed: () {
+                      // Navigate to the Clinical Note Editor Screen
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ClinicalNoteEditorScreen(
+                            patientName: "Rahul Sharma",
+                            patientId: "P-001",
+                            initialText: _transcribedText,
+                          ),
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: indigoAccent,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: const Text(
+                      'Confirm & Save to File',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white54,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    child: const Text(
+                      'Discard Recording',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                ],
             ],
           ),
         ),
@@ -223,236 +369,27 @@ class _UseRecordingScreenState extends State<UseRecordingScreen> {
     );
   }
 
-  // ------------------------- PATIENT + FILE CARD -------------------------
-  Widget _buildPatientCard() {
+  // Helper widget to build the metadata tags
+  Widget _buildBadge({required IconData icon, required String text, required Color color}) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              const Icon(Icons.person_outline, color: _kPrimary, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  widget.patientName.isEmpty
-                      ? 'Patient'
-                      : '${widget.patientName}'
-                      '${widget.patientId.isNotEmpty ? ' (${widget.patientId})' : ''}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const Icon(Icons.audio_file_outlined,
-                  color: Colors.grey, size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  p.basename(widget.filePath),
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ----------------------------- CONVERTING -----------------------------
-  Widget _buildConvertingCard() {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        children: [
-          const SizedBox(
-            width: 44,
-            height: 44,
-            child: CircularProgressIndicator(
-              color: _kPrimary,
-              strokeWidth: 3,
-            ),
-          ),
-          const SizedBox(height: 18),
-          const Text(
-            'Converting audio to text…',
-            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-          ),
-          const SizedBox(height: 8),
+          Icon(icon, color: color, size: 14),
+          const SizedBox(width: 6),
           Text(
-            'Please wait. The first conversion can take longer because the '
-                'backend loads the speech model once.',
-            textAlign: TextAlign.center,
+            text,
             style: TextStyle(
-              color: Colors.grey.shade600,
-              fontSize: 13,
-              height: 1.4,
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ------------------------------- ERROR --------------------------------
-  Widget _buildErrorCard({String? message}) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.red.shade50,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.red.shade100),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.error_outline, color: Colors.redAccent),
-              SizedBox(width: 8),
-              Text(
-                'Something went wrong',
-                style: TextStyle(
-                  color: Colors.redAccent,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            message ?? _errorMessage ?? 'Unexpected error.',
-            style: const TextStyle(fontSize: 13, height: 1.4),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: _convertToText,
-            icon: const Icon(Icons.refresh, color: Colors.white),
-            label: const Text('Try Again'),
-            style: ElevatedButton.styleFrom(backgroundColor: _kPrimary),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ------------------------------ RESULT --------------------------------
-  Widget _buildResultCard() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.text_snippet_outlined, color: _kPrimary),
-              SizedBox(width: 8),
-              Text(
-                'Transcribed text',
-                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'You can edit the text below before using it.',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _textController,
-            minLines: 6,
-            maxLines: null,
-            keyboardType: TextInputType.multiline,
-            textCapitalization: TextCapitalization.sentences,
-            decoration: InputDecoration(
-              hintText: 'Transcribed text will appear here…',
-              filled: true,
-              fillColor: const Color(0xFFF7F7FB),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: const EdgeInsets.all(14),
-            ),
-          ),
-          const SizedBox(height: 8),
-          ValueListenableBuilder<TextEditingValue>(
-            valueListenable: _textController,
-            builder: (context, value, _) => Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                '${value.text.length} characters',
-                style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _convertToText,
-                  icon: const Icon(Icons.refresh, color: _kPrimary),
-                  label: const Text(
-                    'Reconvert',
-                    style: TextStyle(color: _kPrimary),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: _kPrimary),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: _confirmText,
-                  icon: const Icon(
-                    Icons.check_circle_outline,
-                    color: Colors.white,
-                  ),
-                  label: const Text(
-                    'Use This Text',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _kPrimary,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
-            ],
           ),
         ],
       ),

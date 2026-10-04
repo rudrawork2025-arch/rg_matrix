@@ -1,12 +1,60 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Added for SystemUiOverlayStyle
+import 'package:shared_preferences/shared_preferences.dart'; // Added to load the saved name
 
 import 'audio_recorder.dart';
 import 'new_patient.dart';
 import 'patient_profile_screen.dart';
 import 'patient_screen.dart';
+import 'notes_screen.dart';
+import 'profile_screen.dart';
 
-class DoctorHomeScreen extends StatelessWidget {
-  const DoctorHomeScreen({super.key});
+class DoctorHomeScreen extends StatefulWidget {
+  final String? doctorName;
+
+  const DoctorHomeScreen({super.key, this.doctorName});
+
+  @override
+  State<DoctorHomeScreen> createState() => _DoctorHomeScreenState();
+}
+
+class _DoctorHomeScreenState extends State<DoctorHomeScreen> {
+  String _displayName = 'Doctor'; // Default fallback
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.doctorName != null) {
+      _displayName = widget.doctorName!;
+    }
+    _loadDoctorName(); // Dynamically load name whenever the screen opens
+  }
+
+  // Automatically fetches the name from local storage to prevent it from resetting
+  Future<void> _loadDoctorName() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedName = prefs.getString('saved_name');
+
+    if (savedName != null && savedName.trim().isNotEmpty) {
+      final cleanName = savedName.trim().split(' ')[0]; // Extract just the first name
+      if (mounted) {
+        setState(() {
+          _displayName = cleanName[0].toUpperCase() + cleanName.substring(1);
+        });
+      }
+    }
+  }
+
+  String _getGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) {
+      return "Good Morning,";
+    } else if (hour < 17) {
+      return "Good Afternoon,";
+    } else {
+      return "Good Evening,";
+    }
+  }
 
   // ------------------------------------------------------------
   // SAMPLE CONSULTATION DATA
@@ -51,106 +99,115 @@ class DoctorHomeScreen extends StatelessWidget {
   ];
 
   static const Color primaryColor = Color(0xFF4B3FE4);
+  static const Color backgroundColor = Color(0xFF161921);
+  static const Color cardColor = Color(0xFF222631);
+
+  // ============================================================
+  // CUSTOM FADE ANIMATION NAVIGATOR
+  // ============================================================
+  void _navigateWithFade(BuildContext context, Widget screen) {
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => screen,
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 300),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF7F7FB),
-      // ------------------------------------------------------------
-      // BODY
-      // ------------------------------------------------------------
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 16),
-                    _buildStatsGrid(),
-                    const SizedBox(height: 24),
-                    _buildTodaysConsultationsHeader(context),
-                    const SizedBox(height: 12),
-                    _buildConsultationsList(context),
-                    const SizedBox(height: 24),
-                    _buildStartConsultationButton(context),
-                    const SizedBox(height: 16),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
       ),
-      // ------------------------------------------------------------
-      // BOTTOM NAVIGATION
-      // ------------------------------------------------------------
-      bottomNavigationBar: _buildBottomNavBar(context),
-    );
-  }
-
-  // ============================================================
-  // HEADER
-  // ============================================================
-  Widget _buildHeader() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final double width = constraints.maxWidth;
-        final double titleSize = width < 360 ? 18 : 20;
-        final double smallTextSize = width < 360 ? 12 : 13;
-
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-          decoration: const BoxDecoration(
-            color: primaryColor,
-            borderRadius: BorderRadius.only(
-              bottomLeft: Radius.circular(24),
-              bottomRight: Radius.circular(24),
-            ),
-          ),
-          child: Row(
+      child: Scaffold(
+        backgroundColor: backgroundColor,
+        body: SafeArea(
+          child: Column(
             children: [
-              const Icon(Icons.menu, color: Colors.white),
-              const SizedBox(width: 16),
+              _buildSimplifiedHeader(),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Good Morning,",
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: smallTextSize,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      "Dr. Rohan 👋",
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: titleSize,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 16),
+                      _buildStatsGrid(),
+                      const SizedBox(height: 24),
+                      _buildTodaysConsultationsHeader(context),
+                      const SizedBox(height: 12),
+                      _buildConsultationsList(context),
+                      const SizedBox(height: 24),
+                      _buildStartConsultationButton(context),
+                      const SizedBox(height: 16),
+                    ],
+                  ),
                 ),
               ),
-              const Icon(Icons.notifications_none, color: Colors.white),
             ],
           ),
-        );
-      },
+        ),
+        bottomNavigationBar: _buildBottomNavBar(context),
+      ),
     );
   }
 
   // ============================================================
-  // STATS GRID
+  // SIMPLIFIED FLAT HEADER (DARK MODE)
+  // ============================================================
+  Widget _buildSimplifiedHeader() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+      color: Colors.transparent,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _getGreeting(),
+                style: TextStyle(
+                  color: Colors.grey[400],
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                "$_displayName 👋", // Displays the dynamically loaded name (e.g. "Rudra 👋")
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: const BoxDecoration(
+              color: cardColor,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.notifications_none, color: Colors.white),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // STATS GRID (DARK MODE)
   // ============================================================
   Widget _buildStatsGrid() {
     return LayoutBuilder(
@@ -162,66 +219,38 @@ class DoctorHomeScreen extends StatelessWidget {
 
         cardHeight = cardHeight.clamp(115.0, 145.0);
 
-        return Transform.translate(
-          offset: const Offset(0, -20),
-          child: GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: spacing,
-            mainAxisSpacing: spacing,
-            childAspectRatio: cardWidth / cardHeight,
-            children: [
-              _statCard(
-                Icons.person,
-                "Total Patients",
-                "54",
-                Colors.indigo,
-              ),
-              _statCard(
-                Icons.calendar_today,
-                "Today's Consultations",
-                "4",
-                Colors.deepPurple,
-              ),
-              _statCard(
-                Icons.description_outlined,
-                "Notes Generated",
-                "18",
-                Colors.indigo,
-              ),
-              _statCard(
-                Icons.access_time,
-                "Pending Notes",
-                "3",
-                Colors.orange,
-              ),
-            ],
-          ),
+        return GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisSpacing: spacing,
+          mainAxisSpacing: spacing,
+          childAspectRatio: cardWidth / cardHeight,
+          children: [
+            _statCard(Icons.person, "Total Patients", "54", Colors.indigoAccent),
+            _statCard(Icons.calendar_today, "Today's Consultations", "4", Colors.deepPurpleAccent),
+            _statCard(Icons.description_outlined, "Notes Generated", "18", Colors.indigoAccent),
+            _statCard(Icons.access_time, "Pending Notes", "3", Colors.orangeAccent),
+          ],
         );
       },
     );
   }
 
   // ============================================================
-  // STAT CARD
+  // STAT CARD (DARK MODE)
   // ============================================================
-  Widget _statCard(
-      IconData icon,
-      String label,
-      String value,
-      Color iconColor,
-      ) {
+  Widget _statCard(IconData icon, String label, String value, Color iconColor) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardColor,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withOpacity(0.2),
             blurRadius: 8,
-            offset: const Offset(0, 3),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -231,7 +260,7 @@ class DoctorHomeScreen extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 16,
-            backgroundColor: iconColor.withOpacity(0.1),
+            backgroundColor: iconColor.withOpacity(0.15),
             child: Icon(icon, size: 16, color: iconColor),
           ),
           const SizedBox(height: 6),
@@ -240,13 +269,13 @@ class DoctorHomeScreen extends StatelessWidget {
               label,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: Colors.grey),
+              style: TextStyle(fontSize: 11, color: Colors.grey[400]),
             ),
           ),
           const SizedBox(height: 2),
           Text(
             value,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
           ),
         ],
       ),
@@ -262,12 +291,10 @@ class DoctorHomeScreen extends StatelessWidget {
       children: [
         const Text(
           "Today's Consultations",
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
         ),
         GestureDetector(
-          onTap: () {
-            // TODO: Add View All Consultations screen later.
-          },
+          onTap: () {},
           child: const Text(
             "View All",
             style: TextStyle(color: primaryColor, fontWeight: FontWeight.w600),
@@ -289,36 +316,36 @@ class DoctorHomeScreen extends StatelessWidget {
   }
 
   // ============================================================
-  // CONSULTATION TILE
+  // CONSULTATION TILE (DARK MODE)
   // ============================================================
-  Widget _consultationTile(
-      BuildContext context,
-      Map<String, String> consultation,
-      ) {
+  Widget _consultationTile(BuildContext context, Map<String, String> consultation) {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardColor,
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withOpacity(0.2),
             blurRadius: 6,
-            offset: const Offset(0, 2),
+            offset: const Offset(0, 3),
           ),
         ],
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         leading: CircleAvatar(
-          backgroundColor: primaryColor.withOpacity(0.1),
+          backgroundColor: primaryColor.withOpacity(0.15),
           child: const Icon(Icons.person, color: primaryColor),
         ),
         title: Text(
           consultation["name"] ?? "Unknown Patient",
-          style: const TextStyle(fontWeight: FontWeight.w600),
+          style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.white),
         ),
-        subtitle: Text(consultation["time"] ?? "No time"),
+        subtitle: Text(
+          consultation["time"] ?? "No time",
+          style: TextStyle(color: Colors.grey[400]),
+        ),
         trailing: Text(
           consultation["status"] ?? "",
           style: const TextStyle(
@@ -375,40 +402,44 @@ class DoctorHomeScreen extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
+          elevation: 2,
+          shadowColor: primaryColor.withOpacity(0.4),
         ),
       ),
     );
   }
 
   // ============================================================
-  // BOTTOM NAVIGATION
+  // SLEEK BOTTOM NAVIGATION (DARK MODE)
   // ============================================================
   Widget _buildBottomNavBar(BuildContext context) {
-    return BottomNavigationBar(
-      currentIndex: 0,
-      selectedItemColor: primaryColor,
-      unselectedItemColor: Colors.grey,
-      type: BottomNavigationBarType.fixed,
-      onTap: (index) {
-        if (index == 1) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const PatientsScreen()),
-          );
-        }
-      },
-      items: const [
-        BottomNavigationBarItem(icon: Icon(Icons.home), label: "Home"),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.people_outline),
-          label: "Patients",
-        ),
-        BottomNavigationBarItem(icon: Icon(Icons.history), label: "History"),
-        BottomNavigationBarItem(
-          icon: Icon(Icons.person_outline),
-          label: "Profile",
-        ),
-      ],
+    return Container(
+      decoration: const BoxDecoration(
+        color: backgroundColor,
+        border: Border(top: BorderSide(color: cardColor, width: 1)),
+      ),
+      child: BottomNavigationBar(
+        currentIndex: 0,
+        elevation: 0,
+        backgroundColor: backgroundColor,
+        selectedItemColor: primaryColor,
+        unselectedItemColor: Colors.grey.shade600,
+        showSelectedLabels: true,
+        showUnselectedLabels: false,
+        type: BottomNavigationBarType.fixed,
+        onTap: (index) {
+          if (index == 0) return;
+          if (index == 1) _navigateWithFade(context, const PatientsScreen());
+          if (index == 2) _navigateWithFade(context, const NotesScreen());
+          if (index == 3) _navigateWithFade(context, const ProfileScreen());
+        },
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: "Home"),
+          BottomNavigationBarItem(icon: Icon(Icons.people_outline), label: "Patients"),
+          BottomNavigationBarItem(icon: Icon(Icons.description_outlined), label: "Notes"),
+          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: "Profile"),
+        ],
+      ),
     );
   }
 }

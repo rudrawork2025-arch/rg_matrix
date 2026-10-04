@@ -53,7 +53,8 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
   //   Android emulator -> http://10.0.2.2:8000
   //   iOS simulator    -> http://localhost:8000
   //   Real phone       -> http://<YOUR_COMPUTER_LAN_IP>:8000
-  static const String _apiBaseUrl = 'http://192.168.31.187:8000';
+  // Changed to 127.0.0.1 to match your wireless debugging tunnel
+  static const String _apiBaseUrl = 'http://127.0.0.1:8000';
 
   final AudioRecorder _audioRecorder = AudioRecorder();
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -195,19 +196,14 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     if (!hasPermission) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Microphone permission is required."),
-          ),
+          const SnackBar(content: Text("Microphone permission is required.")),
         );
       }
       return;
     }
 
     final dir = await getApplicationDocumentsDirectory();
-
-    final fileName =
-        "consultation_${DateTime.now().millisecondsSinceEpoch}.m4a";
-
+    final fileName = "consultation_${DateTime.now().millisecondsSinceEpoch}.m4a";
     final filePath = p.join(dir.path, fileName);
 
     await _audioRecorder.start(
@@ -224,22 +220,20 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
       _state = RecordingState.recording;
       _secondsElapsed = 0;
       _recordedFilePath = filePath;
-      _transcription = '';
+      _transcription = ''; // We will rely on Whisper for the transcription now
     });
 
     _startTimer();
 
-// Start live speech recognition
-    await _startSpeechToText();
+    // 🛑 COMMENT OUT THIS LINE TO FIX THE SILENT AUDIO BUG:
+    // await _startSpeechToText();
   }
 
 // ---------------- PAUSE / RESUME ----------------
   Future<void> _togglePause() async {
     if (_state == RecordingState.recording) {
       await _audioRecorder.pause();
-
       await _stopSpeechToText();
-
       _stopTimer();
 
       setState(() {
@@ -247,19 +241,17 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
       });
     } else if (_state == RecordingState.paused) {
       await _audioRecorder.resume();
-
       _startTimer();
 
       setState(() {
         _state = RecordingState.recording;
       });
 
-      // Start listening again
-      await _startSpeechToText();
+      // 🛑 COMMENT OUT THIS LINE AS WELL:
+      // await _startSpeechToText();
     }
   }
 
-// ---------------- STOP RECORDING ----------------
   // ---------------- STOP RECORDING ----------------
   Future<void> _stopRecording() async {
     try {
@@ -324,7 +316,9 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     }
 
     try {
-      final file = File(path);
+      // Clean path in case it contains 'file://' prefix which breaks File() and playback on iOS
+      final cleanPath = path.startsWith('file://') ? path.replaceFirst('file://', '') : path;
+      final file = File(cleanPath);
 
       if (!await file.exists()) {
         throw Exception("Recording file does not exist.");
@@ -332,7 +326,7 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
 
       final fileSize = await file.length();
 
-      debugPrint("Playing file: $path");
+      debugPrint("Playing file: $cleanPath");
       debugPrint("File size: $fileSize bytes");
 
       if (fileSize == 0) {
@@ -344,12 +338,20 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
         return;
       }
 
+      // If the player has already loaded the file and is paused or completed, just play/seek
+      if (_audioPlayer.processingState == ProcessingState.ready ||
+          _audioPlayer.processingState == ProcessingState.completed) {
+        if (_audioPlayer.processingState == ProcessingState.completed) {
+          await _audioPlayer.seek(Duration.zero);
+        }
+        await _audioPlayer.play();
+        return;
+      }
+
       await _audioPlayer.stop();
 
-      // Load the complete recorded file again.
-      await _audioPlayer.setAudioSource(
-        AudioSource.file(path),
-      );
+      // Use setFilePath instead of AudioSource.file() for reliable local file playback
+      await _audioPlayer.setFilePath(cleanPath);
 
       await _audioPlayer.play();
     } catch (error) {
@@ -394,11 +396,9 @@ class _ConsultationScreenState extends State<ConsultationScreen> {
     final text = await Navigator.push<String>(
       context,
       MaterialPageRoute(
+        // FIXED: Only passing audioPath to match the UseRecordingScreen constructor
         builder: (_) => UseRecordingScreen(
-          filePath: path,
-          patientName: widget.patientName,
-          patientId: widget.patientId,
-          baseUrl: _apiBaseUrl,
+          audioPath: path,
         ),
       ),
     );
